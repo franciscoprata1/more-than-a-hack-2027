@@ -15,6 +15,12 @@ What is copied from our match (choices, written down in the action plan):
   - the ball past a line: ours is seen there on 2.7% of seen frames, Sportec on ~6%, so each stretch
     of ball more than 1 m out is hidden whole with probability OUT_HIDE;
   - players: each player drops out in runs (mean OFF_MEAN_S) so that ~20.5 of 22 are tracked, as ours;
+  - the dead ball: Sportec freezes the ball where play stopped for the whole stoppage (100% of D
+    frames have zero movement, 0.8% of alive ones; ours is almost never frozen, 0.08%). That would
+    make "ball still" a perfect dead-ball detector here and nowhere else. So in every stoppage the
+    ball now rolls on OVERRUN_M past the line if it went out, wanders at about CARRY_SPEED (carried,
+    rolled, fetched) to the restart spot (its first alive position), then lies there for 1-3 s
+    (placed), with 1 cm jitter. Set so ~5% of seen frames are still, as ours;
   - noise: none added. Sportec is already noisier than ours (ball 0.30-0.37 m against 0.17 m, raw
     minus a light smoothing), so adding any would move it further away.
 Fixed seed per match. Prints totals.
@@ -43,7 +49,13 @@ NEAR_LINE_M = 5.0
 NEAR_LINE_SHIFT = 0.35   # set so ~43% of gaps start near a line, as ours (printed below)
 SHIFT_WIN = 2 * FPS
 OUT_M = 1.0
-OUT_HIDE = 0.55          # set so ~2.7% of seen ball frames are past a line, as ours (printed below)
+OUT_HIDE = 0.75          # set so ~3% of seen ball frames are past a line (ours 2.7%; printed below)
+PLACED_S = (1.0, 3.0)    # the ball lies at the restart spot this long before the restart
+CARRY_SPEED = 1.2        # m/s: a ball carried, rolled and fetched during a stoppage
+CARRY_SIGMA = 25         # frames: how smoothly its heading changes
+JITTER_M = 0.01         # a placed ball is still (5% of our seen frames move under 0.5 m/s)
+OVERRUN_M = 3.0          # a ball that went out rolls on past the line before it is fetched
+OVERRUN_S = 1.0
 OFF_MEAN_S = 3.0         # a player lost by the tracker comes back after a few seconds
 COPY = ("labels.npy", "half.npy", "scored.npy", "pitch.npy", "events.csv")
 
@@ -89,6 +101,46 @@ def player_mask(on, rng, share_off):
     return tracked
 
 
+def dead_ball_path(bx, by, labels, half, pitch, rng):
+    """Replace Sportec's frozen dead ball by a walk to the restart spot, then a short rest there."""
+    bx, by = bx.copy(), by.copy()
+    for s, e in runs((labels == 2) & (half > 0)):
+        if e >= len(bx) or half[e] != half[s]:
+            continue  # no restart in this half to walk to
+        n = e - s
+        rest = min(n // 2, int(rng.uniform(*PLACED_S) * FPS))
+        x0, y0 = bx[s], by[s]
+        go = 0
+        if line_distance(np.array([x0]), np.array([y0]), pitch)[0] < 1.5 and n > 3 * OVERRUN_S * FPS:
+            go = int(OVERRUN_S * FPS)  # outwards, perpendicular to the nearest line
+            L, W = pitch
+            d = [x0, L - x0, y0, W - y0]
+            k = int(np.argmin(d))
+            ox, oy = [(-1, 0), (1, 0), (0, -1), (0, 1)][k]
+            t = np.arange(1, go + 1) / go
+            bx[s:s + go] = x0 + t * ox * OVERRUN_M
+            by[s:s + go] = y0 + t * oy * OVERRUN_M
+            x0, y0 = bx[s + go - 1], by[s + go - 1]
+        move = n - rest - go
+        if move > 0:
+            # A wandering walk from (x0, y0) that ends at the spot: smooth random steps at about
+            # CARRY_SPEED, then the drift is taken out so it arrives (a Brownian bridge).
+            v = rng.normal(0, 1, (move + 6 * CARRY_SIGMA, 2))
+            k = np.exp(-0.5 * (np.arange(-3 * CARRY_SIGMA, 3 * CARRY_SIGMA + 1) / CARRY_SIGMA) ** 2)
+            v = np.stack([np.convolve(v[:, j], k, mode="valid")[:move] for j in (0, 1)], axis=1)
+            v *= CARRY_SPEED / FPS / np.mean(np.hypot(v[:, 0], v[:, 1]))
+            path = np.cumsum(v, axis=0)
+            t = (np.arange(1, move + 1) / move)[:, None]
+            path = path - t * path[-1] + t * np.array([bx[e] - x0, by[e] - y0])
+            bx[s + go:s + go + move] = x0 + path[:, 0]
+            by[s + go:s + go + move] = y0 + path[:, 1]
+        move = max(move, 0) + go
+        bx[s + move:e], by[s + move:e] = bx[e], by[e]
+        bx[s:e] += rng.normal(0, JITTER_M, n)
+        by[s:e] += rng.normal(0, JITTER_M, n)
+    return bx, by
+
+
 def degrade(match, k, prof):
     rng = np.random.default_rng(SEED + k)
     src, dst = os.path.join(SRC, match), os.path.join(DST, match)
@@ -99,6 +151,7 @@ def degrade(match, k, prof):
     pl = dict(np.load(os.path.join(src, "players.npz")))
     half, pitch = np.load(os.path.join(src, "half.npy")), np.load(os.path.join(src, "pitch.npy"))
     bx, by = ball["x"].astype(np.float64), ball["y"].astype(np.float64)
+    bx, by = dead_ball_path(bx, by, np.load(os.path.join(src, "labels.npy")), half, pitch, rng)
     dist = line_distance(bx, by, pitch)
 
     seen = np.zeros(len(bx), dtype=bool)
@@ -133,6 +186,10 @@ def degrade(match, k, prof):
     sc = half > 0
     gaps = np.array([e - s for s, e in runs(~seen & sc)])
     starts = [s for s, e in runs(~seen & sc) if s > 0 and half[s - 1] > 0]
+    lab = np.load(os.path.join(src, "labels.npy"))
+    mv = np.r_[1.0, np.hypot(np.diff(bx), np.diff(by))]
+    print("{}  still ball (<0.5 m/s) seen: D {:.0%} alive {:.0%}".format(
+        match, np.nanmean(mv[(lab == 2) & seen] < 0.02), np.nanmean(mv[(lab < 2) & seen] < 0.02)))
     print("{}  ball seen {:.1%}  gaps {} median {:.1f} s  gap starts near a line {:.0%}  seen past a line "
           "{:.1%}  players tracked {:.2f}".format(
               match, seen[sc].mean(), len(gaps), np.median(gaps) / FPS,
