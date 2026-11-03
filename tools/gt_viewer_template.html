@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ground truth viewer</title>
+<style>
+  :root { --bg:#0f1713; --panel:#17231c; --ink:#e8f0eb; --muted:#92a69a; --line:#2b3d32;
+          --H:#e5484d; --A:#3e8fd8; --D:#7b857f; --X:#3a443e; --accent:#4cc78a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 "Segoe UI", system-ui, sans-serif; }
+  .wrap { max-width:1500px; margin:0 auto; padding:14px 16px 40px; }
+  h1 { font-size:1.15rem; margin:0 0 10px; font-weight:600; }
+  h1 small { color:var(--muted); font-weight:400; margin-left:8px; }
+  .main { display:grid; grid-template-columns:minmax(0,1fr) 340px; gap:14px; align-items:start; }
+  @media (max-width: 980px) { .main { grid-template-columns:1fr; } }
+  .stage { position:relative; background:#000; border-radius:6px; overflow:hidden; }
+  video { display:block; width:100%; height:auto; background:#000; }
+  .badge { position:absolute; left:12px; top:12px; padding:6px 14px; border-radius:6px; font-weight:700;
+           font-size:1.3rem; letter-spacing:.02em; background:var(--D); color:#fff; box-shadow:0 2px 8px #0008; }
+  .badge.H { background:var(--H); } .badge.A { background:var(--A); } .badge.D { background:var(--D); } .badge.X { background:var(--X); }
+  .ours { position:absolute; right:12px; top:12px; padding:6px 12px; border-radius:6px; font-weight:600; background:#000b; color:#fff; display:none; }
+  .ours.dead { background:var(--accent); color:#06140c; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 14px; font-size:.75rem; color:var(--muted); margin-top:4px; }
+  .legend .dot { display:inline-block; margin-right:5px; vertical-align:-1px; }
+  .sub { font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:600; margin:16px 0 0; }
+  .side { display:flex; flex-direction:column; gap:12px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px; }
+  .card h2 { margin:0 0 8px; font-size:.72rem; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+  canvas { width:100%; height:auto; display:block; border-radius:4px; }
+  .readout { display:grid; grid-template-columns:auto 1fr; gap:2px 12px; font-variant-numeric:tabular-nums; }
+  .readout dt { color:var(--muted); } .readout dd { margin:0; text-align:right; }
+  .tl { margin-top:14px; }
+  .tl-row { margin-top:6px; }
+  .tl-name { font-size:.75rem; color:var(--muted); display:flex; justify-content:space-between; }
+  .bar { position:relative; height:30px; border-radius:4px; overflow:hidden; cursor:pointer; background:var(--X); }
+  .bar canvas { width:100%; height:100%; border-radius:0; }
+  .bar.small { height:18px; }
+  .head { position:absolute; top:0; bottom:0; width:2px; background:#fff; pointer-events:none; box-shadow:0 0 4px #000; }
+  .ctrls { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:12px; }
+  button { background:var(--panel); color:var(--ink); border:1px solid var(--line); border-radius:5px; padding:6px 12px;
+           font:inherit; cursor:pointer; }
+  button:hover { border-color:var(--accent); } button.on { border-color:var(--accent); color:var(--accent); }
+  button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .sp { flex:1; }
+  .keys { color:var(--muted); font-size:.8rem; margin-top:8px; }
+  kbd { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:0 5px; font-size:.85em; }
+  .list { margin-top:14px; display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:6px; }
+  .list button { text-align:left; display:flex; gap:8px; align-items:center; padding:5px 9px; }
+  .dot { width:10px; height:10px; border-radius:50%; flex:none; }
+  .list small { color:var(--muted); margin-left:auto; font-variant-numeric:tabular-nums; }
+  .err { background:#4a1f22; border:1px solid var(--H); border-radius:6px; padding:10px 14px; margin-bottom:12px; display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Ground truth viewer <small id="sub"></small></h1>
+  <div class="err" id="err"></div>
+  <div class="main">
+    <div>
+      <div class="stage">
+        <video id="v" preload="auto" muted playsinline></video>
+        <div class="badge X" id="badge">-</div>
+        <div class="ours" id="oursBadge"></div>
+      </div>
+      <div class="tl">
+        <div class="tl-row"><div class="tl-name"><span>Ground truth</span><span id="gtcount"></span></div>
+          <div class="bar" id="barGt"><canvas id="cGt" height="30"></canvas><div class="head" id="hGt"></div></div></div>
+        <div class="tl-row" id="cmpRow"><div class="tl-name"><span id="cmpName"></span><span id="cmpcount"></span></div>
+          <div class="bar small" id="barCmp"><canvas id="cCmp" height="18"></canvas><div class="head" id="hCmp"></div></div></div>
+        <div class="tl-row" id="ourRow"><div class="tl-name"><span>Our dead balls vs ground truth</span><span id="ourcount"></span></div>
+          <div class="bar small" id="barOur"><canvas id="cOur" height="18"></canvas><div class="head" id="hOur"></div></div>
+          <div class="legend"><span><span class="dot" style="background:#4cc78a"></span>both say dead</span>
+            <span><span class="dot" style="background:#f0a030"></span>only we say dead</span>
+            <span><span class="dot" style="background:#a855f7"></span>we missed it</span></div></div>
+      </div>
+      <div class="ctrls">
+        <button id="play">Play</button>
+        <button id="b1" title="back 1 s">-1 s</button><button id="bf" title="back 1 frame">-1 f</button>
+        <button id="ff" title="forward 1 frame">+1 f</button><button id="f1" title="forward 1 s">+1 s</button>
+        <button id="prev">Prev change</button><button id="next">Next change</button>
+        <span class="sp"></span>
+        <span id="speeds"></span>
+        <button id="loop">Loop possession</button>
+      </div>
+      <div class="keys"><kbd>Space</kbd> play · <kbd>,</kbd> <kbd>.</kbd> frame · <kbd>&larr;</kbd> <kbd>&rarr;</kbd> 1 s · <kbd>&uarr;</kbd> <kbd>&darr;</kbd> previous / next change · <kbd>L</kbd> loop</div>
+      <div class="sub" id="stopTitle">Our stoppages (click to jump)</div>
+      <div class="list" id="stopList"></div>
+      <div class="sub">Ground truth segments</div>
+      <div class="list" id="list"></div>
+    </div>
+    <div class="side">
+      <div class="card"><h2>Tracking, top-down</h2><canvas id="mini"></canvas></div>
+      <div class="card"><h2>Now</h2>
+        <dl class="readout">
+          <dt>Video frame</dt><dd id="rFrame"></dd>
+          <dt>Time in clip</dt><dd id="rTime"></dd>
+          <dt>Ground truth</dt><dd id="rGt"></dd>
+          <dt id="rCmpL"></dt><dd id="rCmp"></dd>
+          <dt id="rOurL">Our dead ball</dt><dd id="rOur"></dd>
+          <dt>Possession so far</dt><dd id="rDur"></dd>
+          <dt>Ball tracked</dt><dd id="rBall"></dd>
+        </dl>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+(function () {
+  var D = /*__DATA__*/null;
+  var fps = D.fps, first = D.first, last = D.last, n = last - first + 1;
+  var color = { H: "#e5484d", A: "#3e8fd8", D: "#7b857f", X: "#3a443e",
+                both: "#4cc78a", ours: "#f0a030", missed: "#a855f7" };
+  var video = document.getElementById("v");
+  var $ = function (id) { return document.getElementById(id); };
+  var name = { H: D.teams[0] + " (H)", A: D.teams[1] + " (A)", D: "Dead ball", X: "not graded" };
+  $("sub").textContent = D.teams[0] + " v " + D.teams[1] + " · frames " + first + "-" + last;
+
+  video.src = D.video;
+  video.addEventListener("error", function () {
+    var e = $("err"); e.style.display = "block";
+    e.textContent = "Could not load the video from " + D.video + ". Open this file from the tools folder in Chrome or Edge, with the data folder next to it.";
+  });
+  video.addEventListener("loadedmetadata", function () { seek(first); });
+
+  // possessions / segments inside the window
+  var segs = [], i = 0;
+  while (i < n) { var j = i; while (j < n && D.gt[j] === D.gt[i]) j++; segs.push({ s: i, e: j, c: D.gt[i] }); i = j; }
+  var poss = segs.filter(function (s) { return s.c === "H" || s.c === "A"; }).length;
+  $("gtcount").textContent = poss + " possessions · " + segs.length + " segments";
+
+  function fmt(sec) { var m = Math.floor(sec / 60), s = sec - m * 60; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1); }
+
+  function drawBar(canvasId, labels) {
+    var c = $(canvasId), w = 1500; c.width = w;
+    var ctx = c.getContext("2d");
+    for (var k = 0; k < n; k++) {
+      ctx.fillStyle = color[labels[k]] || color.X;
+      ctx.fillRect(Math.floor(k / n * w), 0, Math.ceil(w / n) + 1, c.height);
+    }
+  }
+  drawBar("cGt", D.gt);
+  if (D.compare) {
+    drawBar("cCmp", D.compare);
+    $("cmpName").textContent = D.compare_name + " (what the baseline says)";
+    $("rCmpL").textContent = D.compare_name;
+    var same = 0; for (var q = 0; q < n; q++) if (D.gt[q] === D.compare[q]) same++;
+    $("cmpcount").textContent = (100 * same / n).toFixed(0) + "% frames agree";
+  } else { $("cmpRow").style.display = "none"; $("rCmpL").parentNode.style.display = "none"; }
+
+  // our dead balls
+  function stopAt(f) { for (var k = 0; k < D.stops.length; k++) if (f >= D.stops[k].s && f < D.stops[k].e) return D.stops[k]; return null; }
+  function stopText(s) { return s.kind + (s.team && s.team !== "?" ? ", restart " + s.team : ""); }
+  if (D.ours) {
+    var cells = [], inter = 0, gtD = 0, ourD = 0;
+    for (var u = 0; u < n; u++) {
+      var t = D.gt[u] === "D", o = D.ours[u] === "D";
+      cells.push(t && o ? "both" : o ? "ours" : t ? "missed" : "X");
+      if (t) gtD++; if (o) ourD++; if (t && o) inter++;
+    }
+    drawBar("cOur", cells);
+    $("ourcount").textContent = "we catch " + (100 * inter / Math.max(1, gtD)).toFixed(0) + "% of true D · " +
+      (100 * inter / Math.max(1, ourD)).toFixed(0) + "% of our D is right";
+    D.stops.forEach(function (s) {
+      var b = document.createElement("button");
+      b.innerHTML = '<span class="dot" style="background:' + color.both + '"></span>' + s.kind + " " + fmt((s.s - first) / fps) +
+                    "<small>" + ((s.e - s.s) / fps).toFixed(1) + " s</small>";
+      b.title = "Start " + s.s + ", End " + s.e + " (" + s.how + ")";
+      b.addEventListener("click", function () { seek(s.s - 2 * fps); });
+      $("stopList").appendChild(b);
+    });
+    if (!D.stops.length) $("stopTitle").style.display = "none";
+  } else {
+    $("ourRow").style.display = "none"; $("rOurL").parentNode.style.display = "none"; $("stopTitle").style.display = "none";
+  }
+
+  // possession list
+  var list = $("list");
+  segs.forEach(function (s, idx) {
+    var b = document.createElement("button");
+    b.innerHTML = '<span class="dot" style="background:' + color[s.c] + '"></span>' + s.c + " " + fmt(s.s / fps) +
+                  "<small>" + ((s.e - s.s) / fps).toFixed(1) + " s</small>";
+    b.addEventListener("click", function () { seek(first + s.s); });
+    list.appendChild(b);
+  });
+
+  // speeds
+  var speeds = [0.25, 0.5, 1, 2], sp = $("speeds");
+  speeds.forEach(function (r) {
+    var b = document.createElement("button"); b.textContent = r + "x";
+    b.addEventListener("click", function () {
+      video.playbackRate = r;
+      Array.prototype.forEach.call(sp.children, function (x) { x.classList.remove("on"); }); b.classList.add("on");
+    });
+    if (r === 1) b.classList.add("on");
+    sp.appendChild(b);
+  });
+
+  function frameNow() { return Math.round(video.currentTime * fps - 0.5); }
+  function seek(f) {
+    f = Math.max(first, Math.min(last, f));
+    video.currentTime = (f + 0.5) / fps;
+    update(f);
+  }
+  var looping = false;
+  function segOf(rel) { for (var k = 0; k < segs.length; k++) if (rel >= segs[k].s && rel < segs[k].e) return k; return segs.length - 1; }
+
+  $("play").addEventListener("click", toggle);
+  function toggle() { if (video.paused) video.play(); else video.pause(); }
+  video.addEventListener("play", function () { $("play").textContent = "Pause"; });
+  video.addEventListener("pause", function () { $("play").textContent = "Play"; });
+  $("b1").onclick = function () { seek(frameNow() - fps); };
+  $("f1").onclick = function () { seek(frameNow() + fps); };
+  $("bf").onclick = function () { video.pause(); seek(frameNow() - 1); };
+  $("ff").onclick = function () { video.pause(); seek(frameNow() + 1); };
+  $("prev").onclick = prev; $("next").onclick = next;
+  function prev() { var rel = frameNow() - first, k = segOf(rel); seek(first + (rel - segs[k].s > fps ? segs[k].s : segs[Math.max(0, k - 1)].s)); }
+  function next() { var k = segOf(frameNow() - first); seek(first + segs[Math.min(segs.length - 1, k + 1)].s); }
+  $("loop").onclick = function () { looping = !looping; this.classList.toggle("on", looping); };
+  document.addEventListener("keydown", function (e) {
+    var key = e.key;
+    if (key === " ") { e.preventDefault(); toggle(); }
+    else if (key === ",") { video.pause(); seek(frameNow() - 1); }
+    else if (key === ".") { video.pause(); seek(frameNow() + 1); }
+    else if (key === "ArrowLeft") { e.preventDefault(); seek(frameNow() - fps); }
+    else if (key === "ArrowRight") { e.preventDefault(); seek(frameNow() + fps); }
+    else if (key === "ArrowUp") { e.preventDefault(); prev(); }
+    else if (key === "ArrowDown") { e.preventDefault(); next(); }
+    else if (key === "l" || key === "L") $("loop").click();
+  });
+
+  function clickBar(id) {
+    $(id).addEventListener("click", function (e) {
+      var r = this.getBoundingClientRect();
+      seek(first + Math.floor((e.clientX - r.left) / r.width * n));
+    });
+  }
+  clickBar("barGt"); clickBar("barCmp"); clickBar("barOur");
+
+  // minimap
+  var mini = $("mini"), mctx = mini.getContext("2d");
+  var PL = D.pitch[0], PW = D.pitch[1], S = 3.2, PAD = 14;
+  mini.width = Math.round(PL * S) + PAD * 2; mini.height = Math.round(PW * S) + PAD * 2;
+  function X(x) { return PAD + x * PL * S; } function Y(y) { return PAD + y * PW * S; }
+  function pitch() {
+    mctx.fillStyle = "#2f7a45"; mctx.fillRect(0, 0, mini.width, mini.height);
+    mctx.strokeStyle = "#ffffffcc"; mctx.lineWidth = 1.2;
+    mctx.strokeRect(PAD, PAD, PL * S, PW * S);
+    mctx.beginPath(); mctx.moveTo(X(.5), Y(0)); mctx.lineTo(X(.5), Y(1)); mctx.stroke();
+    mctx.beginPath(); mctx.arc(X(.5), Y(.5), 9.15 * S, 0, 7); mctx.stroke();
+    [0, 1].forEach(function (side) {
+      [[16.5, 40.3], [5.5, 18.3]].forEach(function (b) {
+        var x = side ? PL - b[0] : 0;
+        mctx.strokeRect(PAD + x * S, PAD + (PW - b[1]) / 2 * S, b[0] * S, b[1] * S);
+      });
+    });
+  }
+  var ballOn = false;
+  function drawTracking(rel) {
+    pitch();
+    var t = D.tracking[rel] || "|", halves = t.split("|"), ball = halves[0];
+    (halves[1] ? halves[1].split(";") : []).forEach(function (p) {
+      var a = p.split(","); mctx.beginPath(); mctx.arc(X(+a[0]), Y(+a[1]), 5, 0, 7);
+      mctx.fillStyle = a[2] === "0" ? color.H : color.A; mctx.fill();
+      mctx.strokeStyle = "#000"; mctx.lineWidth = 1; mctx.stroke();
+    });
+    ballOn = !!ball;
+    if (ball) {
+      var b = ball.split(","); mctx.beginPath(); mctx.arc(X(+b[0]), Y(+b[1]), 4.5, 0, 7);
+      mctx.fillStyle = "#fff"; mctx.fill(); mctx.strokeStyle = "#000"; mctx.lineWidth = 1.6; mctx.stroke();
+    } else {
+      mctx.fillStyle = "#fff"; mctx.font = "13px sans-serif"; mctx.fillText("ball not tracked", PAD + 6, mini.height - PAD - 6);
+    }
+  }
+
+  var lastShown = -1;
+  function update(f) {
+    var rel = Math.max(0, Math.min(n - 1, f - first));
+    if (rel === lastShown) return; lastShown = rel;
+    var c = D.gt[rel], k = segOf(rel), s = segs[k];
+    var badge = $("badge"); badge.className = "badge " + c; badge.textContent = name[c];
+    $("rFrame").textContent = (first + rel);
+    $("rTime").textContent = fmt(rel / fps);
+    $("rGt").textContent = name[c];
+    if (D.compare) $("rCmp").textContent = name[D.compare[rel]];
+    if (D.ours) {
+      var dead = D.ours[rel] === "D", stop = stopAt(first + rel), text = stop ? stopText(stop) : dead ? "dead ball" : "ball in play";
+      $("rOur").textContent = text;
+      var ob = $("oursBadge"); ob.textContent = "Ours: " + text; ob.className = dead ? "ours dead" : "ours"; ob.style.display = "block";
+    }
+    $("rDur").textContent = ((rel - s.s) / fps).toFixed(1) + " s of " + ((s.e - s.s) / fps).toFixed(1) + " s";
+    $("rBall").textContent = ballOn ? "yes" : "no";
+    var pct = (rel / n * 100) + "%"; $("hGt").style.left = pct; $("hCmp").style.left = pct; $("hOur").style.left = pct;
+    drawTracking(rel);
+    $("rBall").textContent = ballOn ? "yes" : "no";
+  }
+
+  function tick() {
+    var f = frameNow();
+    if (f >= last && !video.paused) { video.pause(); seek(last); }
+    else if (looping) {
+      var s = segs[segOf(f - first)];
+      if (f - first >= s.e - 1 && !video.paused) seek(first + s.s);
+    }
+    if (f >= first - 1) update(f);
+    requestAnimationFrame(tick);
+  }
+  drawTracking(0); update(first);
+  requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>

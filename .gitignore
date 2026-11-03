@@ -62,3 +62,12 @@ __pycache__/
 venv/
 env/
 .DS_Store
+
+# generated viewer: embeds tracking from the gated bundle
+tools/gt_viewer.html
+
+# Phase 2 cache of the gated data
+cache/
+
+# Claude Code personal settings
+.claude/settings.local.json
