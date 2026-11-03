@@ -46,6 +46,10 @@
 | `v1/ball_blend.py` | Plain blended with the straight line, no training: T chosen on validation blocks (3 s), on the pitch / out scores -> `cache/ball_predicted_blend.npz` (same keys plus `t_seconds`). Use this file in later steps, not `ball_predicted.npz`. A predicted ball on the pitch is not proof it is in play: it catches about 3 in 10 out balls deep in a gap. |
 | `v1/ball_checks.py` | Looks at a trained fold 0 model without opening the hidden gaps: `lengths plain line` (validation error per gap length), `stoppages line` (stopped play against open play). `cache/ball_model_fold0.pt` is the line model, `_plain` the one without the line, both 10 epochs; `plain_long`, `line_long` are the same two trained to early stopping. |
 | `tools/make_gt_viewer.py` | Builds `tools/gt_viewer.html` (video + GT + minimap + our dead balls strip and stoppage list). Rebuild it after `v1/dead_balls.py`. |
+| `v2/sportec_download.py`, `v2/sportec_cache.py` | v2 Stage 0: 7 IDSSE matches (CC BY 4.0) into `data/sportec/`, then `cache/sportec/<match>/` in our format (+ `labels.npy` 0 H/1 A/2 D/3 X, `half.npy`, `pitch.npy`, `events.csv`). Referees left out. |
+| `v2/our_profile.py`, `v2/sportec_degrade.py` | Our match's gap pattern as totals -> `cache/v2_profile.npz`; degraded copy -> `cache/sportec_degraded/<match>/` (ball hidden like ours, ~20.5 players, Sportec's frozen dead ball replaced by a walk to the restart spot). |
+| `v2/bench.py` | `load("J03WPY")` clean, `load("J03WPY~")` degraded, `load("ours")`; `score`, `lomo`, `report_ours` (writes `evaluation/results/<name>.csv`, 5 min score as report only). Run alone: label check + majority smoothing baselines. |
+| `v2/stage1.py`, `v2/stage2.py`, `v2/deadball.py` | v2 Stage 1 (nearest team + Viterbi) and Stage 2 (dead ball layer, cues in `deadball.py`). Grids cached in `cache/v2_stage*_grid.csv`; delete to rerun. Results in the plan doc, v2 tab. |
 | `DATA.md`, `EVALUATION.md`, `RULES.md`, `SUBMISSION.md`, `FAQ.md`, `CHALLENGE.md` | Organisers' docs. Check `DATA.md` for expected numbers. |
 
 ## Cache format (`cache/`)
