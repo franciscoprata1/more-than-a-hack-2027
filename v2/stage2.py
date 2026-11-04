@@ -18,7 +18,7 @@ Frames inside get W_D nats per frame towards D; everything else is Stage 1 uncha
 evidence are fixed: one change at a time).
 
 Fallback (plan): seeds plus the slowdown rule only, no shapes, exits or restart kicks.
-Tuned on degraded Sportec, LOMO. Gate: better D precision, D recall and spellF1 than Stage 1.
+Tuned on degraded Sportec, LOMO. Gate (from bench v2): D F1 up and spellF1 not down against Stage 1.
 Writes cache/v2_stage2_grid.csv, evaluation/results/v2_stage2.csv.
 """
 
@@ -40,7 +40,6 @@ from smooth import runs  # noqa: E402
 
 # Params
 FPS = 25
-STAGE1 = (4.0, 0.2, 0.02, 8, 8, 8)   # the Stage 1 setting kept (best on all 7 degraded matches)
 CLOSE_S = 2.0                         # slow stretches this close are one
 SUPPORT_S = 3.0                       # backing may sit this far outside the slow stretch
 RESTART_S = 3.0                       # a restart kick this close to the slow stretch's end ends it
@@ -135,6 +134,16 @@ def viterbi_many(es, cost):
     return path
 
 
+def stage1_setting():
+    """The Stage 1 setting kept: best on all 7 degraded matches, missing ball leaning to D."""
+    g = pd.read_csv(os.path.join(CACHE, "v2_stage1_grid.csv"))
+    g["param"] = g["param"].map(eval)
+    return bench.all_params_best(g[g.param.map(lambda p: p[2] > 0)])
+
+
+STAGE1 = stage1_setting()
+
+
 def stage1_evidence(m):
     scale, q_in, md, *_ = STAGE1
     return s1.evidence(m, s1.distances(m), scale, q_in, md)
@@ -174,11 +183,6 @@ def predict(m, param, mode, k=0):
     return bench.finish(m, s1.upsample(path, len(m["half"]))), stops
 
 
-def d_f1(df):
-    p, r = df["D_prec"], df["D_rec"]
-    return 2 * p * r / (p + r)
-
-
 def main():
     pd.set_option("display.width", 200)
     pd.set_option("display.precision", 3)
@@ -192,6 +196,7 @@ def main():
         g.to_csv(path, index=False)
 
     st1 = pd.read_csv(os.path.join(CACHE, "v2_stage1_lomo.csv"))
+    print("stage 1 setting under the dead layer:", STAGE1)
     print("== stage 1 (kept), degraded Sportec, LOMO ==")
     print(bench.summary(st1).to_string(index=False))
 
@@ -200,21 +205,20 @@ def main():
         lo = bench.lomo(g[g["mode"] == mode])
         results[mode] = lo
         print("\n== stage 2 {}, LOMO ==".format(mode))
-        print(bench.summary(lo, cols=("spellF1", "macroF1", "D_prec", "D_rec", "n_pred", "n_gt", "n_stops")).to_string(index=False))
+        print(bench.summary(lo, cols=("spellF1", "macroF1", "D_prec", "D_rec", "D_F1", "n_pred", "n_gt", "n_stops")).to_string(index=False))
         print("params (v_slow, t_slow, t_alone, lag, w_d):", lo.param.tolist())
 
     full = results["full"]
-    better = {k: full[k].mean() > st1[k].mean() for k in ("spellF1", "D_prec", "D_rec")}
-    d1, d2 = d_f1(st1).mean(), d_f1(full).mean()
+    d1, d2 = st1.D_F1.mean(), full.D_F1.mean()
     print("\nGATE stage 2 vs stage 1 (degraded, LOMO): spellF1 {:.4f} vs {:.4f}, D prec {:.3f} vs {:.3f}, "
           "D rec {:.3f} vs {:.3f}, D F1 {:.3f} vs {:.3f}, macroF1 {:.4f} vs {:.4f}".format(
               full.spellF1.mean(), st1.spellF1.mean(), full.D_prec.mean(), st1.D_prec.mean(),
               full.D_rec.mean(), st1.D_rec.mean(), d2, d1, full.macroF1.mean(), st1.macroF1.mean()))
-    print("  improved:", better)
-    passed = all(better.values())
+    passed = bench.gate(full, st1)
+    print("  gate (D F1 up, spellF1 not down):", "PASS" if passed else "FAIL")
     fb = results["fallback"]
     print("fallback vs stage 1: spellF1 {:.4f}, D prec {:.3f}, D rec {:.3f}, D F1 {:.3f}".format(
-        fb.spellF1.mean(), fb.D_prec.mean(), fb.D_rec.mean(), d_f1(fb).mean()))
+        fb.spellF1.mean(), fb.D_prec.mean(), fb.D_rec.mean(), fb.D_F1.mean()))
 
     if passed:
         mode = "full"
@@ -231,7 +235,7 @@ def main():
         pred, stops = predict(m, final, mode, k)
         clean.append(dict(match=mt, n_stops=len(stops), **bench.score(m["labels"], pred)))
     print("\n== same setting on clean Sportec (reference) ==")
-    print(bench.summary(pd.DataFrame(clean), cols=("spellF1", "macroF1", "D_prec", "D_rec", "n_pred", "n_gt", "n_stops")).to_string(index=False))
+    print(bench.summary(pd.DataFrame(clean), cols=("spellF1", "macroF1", "D_prec", "D_rec", "D_F1", "n_pred", "n_gt", "n_stops")).to_string(index=False))
 
     ours = bench.load("ours")
     pred, stops = predict(ours, final, mode)

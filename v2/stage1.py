@@ -16,7 +16,8 @@
 
 All costs and thresholds are tuned on degraded Sportec, leave one match out (LOMO). The final run on
 our match uses the setting best on all 7 degraded matches; the 5 minute answer key is report only.
-Gate: beat the organisers' majority smoothing on degraded Sportec (spellF1), else keep it.
+Gate (from bench v2): D F1 up and spellF1 not down against the organisers' majority smoothing on
+degraded Sportec, else keep majority smoothing. The missing-ball lean to D is always on (lean > 0).
 
 Writes cache/v2_stage1_grid.csv, cache/v2_stage1_lomo.csv, evaluation/results/v2_stage1.csv.
 """
@@ -230,11 +231,14 @@ def main():
     print(bench.summary(lo).to_string(index=False))
     print("params:", lo.param.tolist())
 
-    # The version kept: the plan as written unless the variant wins by more than the noise band.
-    gain = lo.spellF1.mean() - lo_plan.spellF1.mean()
-    use = lo if gain > 0.01 else lo_plan
-    use_grid = grid if gain > 0.01 else plan
-    print("\nkept: {} (variant gain {:+.4f} spellF1)".format("variant" if use is lo else "plan", gain))
+    # The version kept (decided on bench v1, CEO's order on bench v2): the missing ball leans to D.
+    use_grid = grid[grid.param.map(lambda p: p[2] > 0)]
+    use = bench.lomo(use_grid)
+    print("\n== stage 1 kept: missing ball leans to D (lean > 0), LOMO ==")
+    print(bench.summary(use).to_string(index=False))
+    print("params:", use.param.tolist())
+    print("lean vs plan as written: spellF1 {:+.4f}, D F1 {:+.4f}".format(
+        use.spellF1.mean() - lo_plan.spellF1.mean(), use.D_F1.mean() - lo_plan.D_F1.mean()))
 
     chosen = dict(zip(use.match, use.param))
     xt = x_table(chosen)
@@ -244,10 +248,11 @@ def main():
     print(bench.summary(xlo).to_string(index=False), " X thresholds:", xlo.param.tolist())
     xlo.to_csv(os.path.join(CACHE, "v2_stage1_lomo.csv"), index=False)
 
-    gate = xlo.spellF1.mean() > base_lo.spellF1.mean()
-    print("\nGATE stage 1 vs majority smoothing (degraded, LOMO): spellF1 {:.4f} vs {:.4f}, macroF1 {:.4f} vs {:.4f} -> {}".format(
-        xlo.spellF1.mean(), base_lo.spellF1.mean(), xlo.macroF1.mean(), base_lo.macroF1.mean(),
-        "PASS" if gate else "FAIL (keep majority smoothing)"))
+    gate = bench.gate(xlo, base_lo)
+    print("\nGATE stage 1 vs majority smoothing (degraded, LOMO; D F1 up, spellF1 not down): spellF1 {:.4f} vs {:.4f}, "
+          "D F1 {:.3f} vs {:.3f}, macroF1 {:.4f} vs {:.4f} -> {}".format(
+              xlo.spellF1.mean(), base_lo.spellF1.mean(), xlo.D_F1.mean(), base_lo.D_F1.mean(),
+              xlo.macroF1.mean(), base_lo.macroF1.mean(), "PASS" if gate else "FAIL (keep majority smoothing)"))
 
     final = bench.all_params_best(use_grid)
     final_x = bench.all_params_best(xt, key="macroF1")

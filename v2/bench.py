@@ -122,8 +122,10 @@ def score(gt, pred):
     """The numbers every stage reports."""
     r = pm.evaluate(gt, pred, taus=(25,))
     pc = r["per_class"]["D"]
-    return {"spellF1": r["spell_f1_mean"], "macroF1": r["macro_f1"], "D_prec": pc["precision"],
-            "D_rec": pc["recall"], "n_pred": r["n_pred_spells"], "n_gt": r["n_gt_spells"]}
+    p, q = pc["precision"], pc["recall"]
+    return {"spellF1": r["spell_f1_mean"], "macroF1": r["macro_f1"], "D_prec": p, "D_rec": q,
+            "D_F1": 2 * p * q / (p + q) if p + q > 0 else 0.0,
+            "n_pred": r["n_pred_spells"], "n_gt": r["n_gt_spells"]}
 
 
 def lomo(table, key="spellF1"):
@@ -138,7 +140,12 @@ def lomo(table, key="spellF1"):
     return pd.DataFrame(rows)
 
 
-def summary(df, cols=("spellF1", "macroF1", "D_prec", "D_rec", "n_pred", "n_gt")):
+def gate(new, old):
+    """The gate from bench v2 on: a stage passes if mean D F1 goes up and mean spellF1 does not drop."""
+    return new["D_F1"].mean() > old["D_F1"].mean() and new["spellF1"].mean() >= old["spellF1"].mean()
+
+
+def summary(df, cols=("spellF1", "macroF1", "D_prec", "D_rec", "D_F1", "n_pred", "n_gt")):
     """Per-match rows plus a mean row, as a printable DataFrame."""
     out = df[["match"] + [c for c in cols if c in df]].copy()
     mean = out.drop(columns="match").mean()
