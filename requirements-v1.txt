@@ -2,4 +2,4 @@
 #   .venv\Scripts\python.exe -m pip install -r requirements-v1.txt
 # On Windows PyTorch also needs the Microsoft Visual C++ Redistributable.
 --index-url https://download.pytorch.org/whl/cpu
-torch==2.15.0
+torch==2.14.0

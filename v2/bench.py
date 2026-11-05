@@ -41,6 +41,7 @@ CACHE = os.path.join(ROOT, "cache")
 OUR_PITCH = (105.3, 68.0)
 PUBLIC_GT = os.path.join(ROOT, "evaluation", "gt", "BAR-ATH_possession_gt_public.csv")
 RESULTS = os.path.join(ROOT, "evaluation", "results")
+CONTROL_S = 2.0          # controlled possession: a team must hold the ball this long to take it
 H, A, D, X = 0, 1, 2, 3
 LETTERS = np.array(list("HADX"))
 
@@ -103,6 +104,30 @@ def load(name):
         m["labels"] = np.load(os.path.join(d, "labels.npy"))
         m["events"] = pd.read_csv(os.path.join(d, "events.csv"), keep_default_na=False)
     return m
+
+
+def controlled(labels, half, min_s=CONTROL_S):
+    """The organisers' written rule on Sportec labels: during live play, a team that holds the ball
+    for less than min_s (a touch, a deflection) does not take possession; that stretch goes back to
+    the team before it. The first spell after a stoppage keeps its label (a restart has a clear
+    possessor). D and X frames are left as they are."""
+    out = labels.copy()
+    w = int(round(min_s * FPS))
+    for s, e in runs(half > 0):
+        cur = -1
+        i = s
+        while i < e:
+            j = i
+            while j < e and labels[j] == labels[i]:
+                j += 1
+            if labels[i] not in (H, A):
+                cur = -1 if labels[i] == D else cur
+            elif cur < 0 or labels[i] == cur or j - i >= w:
+                cur = labels[i]
+            else:
+                out[i:j] = cur
+            i = j
+    return out
 
 
 def nearest_by_team(bx, by, px, py, team):

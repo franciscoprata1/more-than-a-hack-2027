@@ -2,6 +2,7 @@
 
     .venv\\Scripts\\python.exe v2/stage5.py              # one network
     .venv\\Scripts\\python.exe v2/stage5.py --nets 5     # 5 networks averaged, gated against one
+    .venv\\Scripts\\python.exe v2/stage5.py --nets 5 --truth controlled   # scored on bench.controlled labels
 
 Every clue of Stages 1-4 is kept apart per 5 Hz step (nearest team, owner and control, ball in
 flight, last team in control, stoppage, set-piece shapes, seed restarts, ball missing and for how
@@ -25,6 +26,11 @@ averages their probabilities: one network's luck in its random start is smoothed
 evaluation/results/v2_stage5_n5.csv is the final submission. Tried and not kept (5 Nov): pitch
 control clues (who reaches the ball first), spellF1 +0.0004, no real gain.
 Gate (bench.gate): D F1 up and spellF1 not down, one network against Stage 4, N networks against one.
+--truth controlled scores (and tunes) against bench.controlled labels (a team holding the ball under
+2 s does not take possession, the organisers' written rule); report only, writes no submission. Tried
+and not kept (5 Nov): training on those labels too, spellF1 0.5363 vs 0.5360, a tie; a second
+network as a change detector (turnover discount where p(take over) > thresh), Sportec labels 0.4396 vs
+0.4376 but controlled 0.5310 vs 0.5360, possessions unchanged (256 vs 254).
 Writes cache/v2_stage5/<match>.npz (features), cache/v2_stage5[_n<N>]_grid.csv,
 evaluation/results/v2_stage5[_n<N>].csv.
 """
@@ -65,8 +71,9 @@ LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4
 NET_SEED = 2027
 NETS = 1                 # networks averaged; set by --nets
+TRUTH = "sportec"        # labels scored against; set by --truth
 ALPHAS = (0.25, 0.5, 1.0, 2.0, 4.0)     # 4 added: the first try picked the edge
-C_TEAMS = (2, 4, 8, 16, 32)          # 2 added: the first try picked the edge
+C_TEAMS = (2, 4, 8, 16, 32)          # 2 added; lower adds nothing: (alpha, cost) scaled together give the same path
 DISCOUNTS = (1.0, 0.5, 0.25)
 D_SCALES = (0.5, 1.0, 2.0)
 OUT_DIR = os.path.join(CACHE, "v2_stage5")
@@ -288,7 +295,7 @@ class Ensemble:
 
 
 def suffix(nets):
-    return "" if nets == 1 else "_n{}".format(nets)
+    return ("" if nets == 1 else "_n{}".format(nets)) + ("" if TRUTH == "sportec" else "_vsC")
 
 
 def grid_path(nets):
@@ -375,10 +382,12 @@ def nested(g):
 
 
 def main():
-    global NETS
+    global NETS, TRUTH
     parser = argparse.ArgumentParser()
     parser.add_argument("--nets", type=int, default=1)
-    NETS = parser.parse_args().nets
+    parser.add_argument("--truth", choices=("sportec", "controlled"), default="sportec")
+    args = parser.parse_args()
+    NETS, TRUTH = args.nets, args.truth
     pd.set_option("display.width", 220)
     pd.set_option("display.precision", 3)
     t0 = time.time()
@@ -387,6 +396,11 @@ def main():
     print("features: {} per step ({} clues + context); built in {:.0f} s".format(
         feats["ours"]["X"].shape[1], int(feats["ours"]["n_base"]), time.time() - t0), flush=True)
     matches = {mt: bench.load(mt + "~") for mt in MATCHES}
+    if TRUTH == "controlled":
+        for mt in MATCHES:
+            matches[mt]["labels"] = bench.controlled(matches[mt]["labels"], matches[mt]["half"])
+        main_controlled(feats, matches, t0)
+        return
     path = grid_path(NETS)
     if not os.path.isfile(path):
         g = run_grid(feats, matches)
@@ -451,6 +465,21 @@ def main():
         one = pd.read_csv(os.path.join(bench.RESULTS, "v2_stage5.csv"))["label"].values
         print("ours: frames changed against one network {:.1%}".format((bench.LETTERS[pred][sc] != one[sc]).mean()))
     bench.report_ours(pred, "v2_stage5" + suffix(NETS))
+    print("took {:.0f} s".format(time.time() - t0))
+
+
+def main_controlled(feats, matches, t0):
+    """Scored on controlled labels: the grid and nested LOMO (report only)."""
+    path = grid_path(NETS)
+    if not os.path.isfile(path):
+        g = run_grid(feats, matches)
+        g["param"] = g["param"].map(str)
+        g.to_csv(path, index=False)
+    lo, outer = nested(s4.read_grid(path))
+    s3.show("stage 5, {} networks, scored on controlled labels, nested LOMO".format(NETS), lo, s3.COLS)
+    print("settings per match (alpha, c_team, discount, D cost scale):")
+    for mt, p in zip(lo.match, lo.param):
+        print("  ", mt, p)
     print("took {:.0f} s".format(time.time() - t0))
 
 
