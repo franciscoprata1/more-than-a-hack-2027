@@ -30,7 +30,9 @@ Gate (bench.gate): D F1 up and spellF1 not down, one network against Stage 4, N 
 2 s does not take possession, the organisers' written rule); report only, writes no submission. Tried
 and not kept (5 Nov): training on those labels too, spellF1 0.5363 vs 0.5360, a tie; a second
 network as a change detector (turnover discount where p(take over) > thresh), Sportec labels 0.4396 vs
-0.4376 but controlled 0.5310 vs 0.5360, possessions unchanged (256 vs 254).
+0.4376 but controlled 0.5310 vs 0.5360, possessions unchanged (256 vs 254); moving each predicted
+change to the new team's nearest touch within 1-4 s, worse at every width (best 0.4363), though 83%
+of true seen-ball changes sit within 0.5 s of such a touch.
 Writes cache/v2_stage5/<match>.npz (features), cache/v2_stage5[_n<N>]_grid.csv,
 evaluation/results/v2_stage5[_n<N>].csv.
 """
