@@ -72,7 +72,8 @@ BATCH = 1024
 LEARNING_RATE = 1e-3
 WEIGHT_DECAY = 1e-4
 NET_SEED = 2027
-NETS = 1                 # networks averaged; set by --nets
+THREADS = 8              # torch's default on our 8-core machine, fixed so the file reproduces elsewhere
+NETS = 1                # networks averaged; set by --nets
 TRUTH = "sportec"        # labels scored against; set by --truth
 ALPHAS = (0.25, 0.5, 1.0, 2.0, 4.0)     # 4 added: the first try picked the edge
 C_TEAMS = (2, 4, 8, 16, 32)          # 2 added; lower adds nothing: (alpha, cost) scaled together give the same path
@@ -263,6 +264,7 @@ class Net:
 
     def fit(self, x, y, seed=NET_SEED):
         torch.manual_seed(seed)
+        torch.set_num_threads(THREADS)
         rng = np.random.default_rng(seed)
         self.mu, self.sd = x.mean(axis=0), x.std(axis=0) + 1e-6
         xt = torch.from_numpy(((x - self.mu) / self.sd).astype(np.float32))
