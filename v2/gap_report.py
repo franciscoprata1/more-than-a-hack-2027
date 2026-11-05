@@ -74,6 +74,7 @@ def score_match(k, mt):
     m, gaps, glen, cause, gap = gap_frames(mt + "~")
     t = np.load(os.path.join(DEGRADED, mt, "ball_truth.npz"))
     p = np.load(pred_path(mt, k))
+    gap = gap & np.isfinite(p["x"])   # fills made before the half-edge fix leave a half's last 1-2 frames empty
     lx, ly = line_fill(m["raw_ball_x"], m["raw_ball_y"], gaps, m["half"])
     em = np.hypot(p["x"] - t["x"], p["y"] - t["y"])
     el = np.hypot(lx - t["x"], ly - t["y"])
@@ -114,6 +115,7 @@ def ours_mean(folds):
     out["spread"] = spread.astype(np.float32)
     np.savez_compressed(os.path.join(OUT_DIR, "pred_ours_mean.npz"), **out)
     m, gaps, glen, cause, gap = gap_frames("ours")
+    gap = gap & np.isfinite(out["x"])
     L, W = m["pitch"]
     x, y = out["x"], out["y"]
     near = np.nanmin(np.hypot(m["player_x"] - x[:, None], m["player_y"] - y[:, None]), axis=1)

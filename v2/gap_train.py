@@ -274,7 +274,9 @@ def fill_match(model, ds):
     for h in (0, 1):
         sel = ds["half"] == h
         f = frames[sel]
-        want = np.arange(f[0], f[-1] + 1)
+        # to the frame before the next half's first step: the last 1-2 frames of a half hold the last step
+        end = frames[ds["half"] == 1][0] if h == 0 else n
+        want = np.arange(f[0], min(f[-1] + 3, end))
         for j, k in enumerate(("x", "y", "p_home", "p_away", "p_nobody")):
             res[k][want] = np.interp(want, f, out[sel, j])
     return res
